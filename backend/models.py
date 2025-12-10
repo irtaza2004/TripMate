@@ -58,6 +58,26 @@ class Trip(db.Model):
     hotels: Mapped[List["Hotel"]] = relationship(back_populates="trip", cascade="all, delete-orphan")
 
     def to_dict(self):
+        # Calculate balances
+        balances = {member.id: 0.0 for member in self.members}
+        
+        for expense in self.expenses:
+            try:
+                expense_amount = float(expense.amount) if expense.amount else 0.0
+                
+                # Creditor (Paid By) gets positive balance (money owed TO them)
+                if expense.paid_by_id in balances:
+                    balances[expense.paid_by_id] += expense_amount
+                
+                # Debtors (Split Among) get negative balance (money they OWE)
+                if expense.splits:
+                    for split in expense.splits:
+                        if split.member_id in balances:
+                            split_amount = float(split.amount) if split.amount else 0.0
+                            balances[split.member_id] -= split_amount
+            except (ValueError, TypeError):
+                continue
+        
         return {
             "id": self.id,
             "userId": self.user_id,
@@ -68,7 +88,7 @@ class Trip(db.Model):
             "budget": float(self.budget) if self.budget else 0,
             "coverImage": self.cover_image,
             "description": self.description,
-            "members": [member.to_dict() for member in self.members],
+            "members": [{**member.to_dict(), "balance": balances.get(member.id, 0.0)} for member in self.members],
             "expenses": [expense.to_dict() for expense in self.expenses],
             "activities": [activity.to_dict() for activity in self.activities],
         }
